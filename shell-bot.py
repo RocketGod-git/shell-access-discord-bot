@@ -26,6 +26,7 @@ from discord.ext import commands
 import subprocess
 import os
 import json
+import threading
 
 with open('config.json', 'r') as file:
     config = json.load(file)
@@ -79,11 +80,42 @@ async def _list_files(ctx, *, directory: str):
     except Exception as e:
         await ctx.send(content=str(e))
 
+MAX_MESSAGE_LENGTH = 1900  # Leave some room for extra characters
+
+def run_command_with_timeout(command, timeout_sec):
+    """Runs `command` in a shell and returns its output. Raises a
+    subprocess.TimeoutExpired exception if the command doesn't finish within
+    `timeout_sec` seconds."""
+    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    timer = threading.Timer(timeout_sec, process.kill)
+    try:
+        timer.start()
+        stdout, stderr = process.communicate()
+    finally:
+        timer.cancel()
+    return stdout, stderr, process.returncode
+
 @bot.command(name="shell", help="Run a shell command.")
 async def _shell(ctx, *, command: str):
     try:
-        result = subprocess.check_output(command, shell=True, text=True, timeout=10) 
-        await ctx.send(content=f"Output: {result}")
+        stdout, stderr, returncode = run_command_with_timeout(command, 10)  # 10 second timeout
+
+        # We join the stdout and stderr into a single string, separating them by a newline.
+        result = "\n".join([stdout, stderr])
+
+        if returncode != 0:
+            # If the process exited with a non-zero status (indicating an error), raise an exception.
+            raise subprocess.CalledProcessError(returncode, command)
+
+        # Check if the result is too long to send in a single message
+        while len(result) > 0:
+            if len(result) > MAX_MESSAGE_LENGTH:
+                await ctx.send(content=f"Output: {result[:MAX_MESSAGE_LENGTH]}")
+                result = result[MAX_MESSAGE_LENGTH:]
+            else:
+                await ctx.send(content=f"Output: {result}")
+                result = ""
+
     except subprocess.CalledProcessError as e:
         await ctx.send(content=f"Error: {str(e)}")
     except subprocess.TimeoutExpired:
