@@ -82,8 +82,8 @@ async def _list_files(ctx, *, directory: str):
 @bot.command(name="shell", help="Run a shell command.")
 async def _shell(ctx, *, command: str):
     try:
-        result = subprocess.check_output(command, shell=True, text=True, timeout=10)  # set timeout to 10 seconds
-        await send_long_message(ctx, f"Output: {result}")
+        result = subprocess.check_output(command, shell=True, text=True, timeout=10) 
+        await ctx.send(content=f"Output: {result}")
     except subprocess.CalledProcessError as e:
         await ctx.send(content=f"Error: {str(e)}")
     except subprocess.TimeoutExpired:
