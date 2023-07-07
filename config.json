@@ -1,3 +1,4 @@
 {
-  "DISCORD_BOT_TOKEN": "your-token-here"
+  "DISCORD_BOT_TOKEN": "your-token-here",
+  "CHANNEL_ID": "123456789012345678replaceme"
 }

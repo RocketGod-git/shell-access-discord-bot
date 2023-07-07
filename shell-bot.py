@@ -1,177 +1,136 @@
 # WARNING
 #
-# This Discord bot, intended for educational purposes, demonstrates various potential security vulnerabilities 
-# associated with arbitrary code execution or system access from user input. The bot includes several commands 
-# for users to interact with the underlying system, which should only be used in a controlled and secure environment.
+# This Discord bot, intended for educational purposes, demonstrates a potential security vulnerability 
+# associated with arbitrary code execution or system access from user input. The bot includes a command 
+# for users to execute arbitrary shell commands using the "!shell" command. This should only be used in a 
+# controlled and secure environment.
 #
-# The bot's features include:
-# 1. Executing JavaScript code with a Node.js runtime using the "!js" command.
-# 2. Executing Python code in a limited environment using the "!python" command.
-# 3. Reading file content from the local filesystem using the "!read_file" command.
-# 4. Writing to a file on the local filesystem using the "!write_file" command.
-# 5. Listing files in a specified directory using the "!list_files" command.
-# 6. Executing arbitrary shell commands using the "!shell" command.
-# 7. Retrieving the value of an environment variable using the "!get_env" command.
-# 8. Deleting a file from the local filesystem using the "!delete_file" command.
-# 9. Changing file permissions on the local filesystem using the "!chmod" command.
+# The bot's feature includes:
+# 1. Executing arbitrary shell commands using the "!shell" command. Tested and working on Windows and Linux.
 #
-# Each command is accompanied by a help message that describes its functionality and usage. The bot also includes 
-# error handling to respond with informative messages in case of command errors. 
-# Please use this bot responsibly and understand the associated security risks of its functionalities.
+# Please use this bot responsibly and understand the associated security risks of its functionality.
 #
 # RocketGod
 
 import discord
+import asyncio
 from discord.ext import commands
 import subprocess
-import os
 import json
-import threading
+import signal
+from time import sleep
+import sys
+import platform
 
 with open('config.json', 'r') as file:
     config = json.load(file)
 
 TOKEN = config.get("DISCORD_BOT_TOKEN")
+CHANNEL_ID = int(config.get("CHANNEL_ID")) 
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.remove_command('help')
+channel = None
 
-@bot.command(name="js", help="Run JavaScript code.")
-async def _js(ctx, *, code: str):
+MAX_MESSAGE_LENGTH = 1500  # Leave some room for extra characters
+
+async def run_command_with_timeout(command, timeout):
+    process = await asyncio.create_subprocess_shell(
+        command, 
+        stdout=asyncio.subprocess.PIPE, 
+        stderr=asyncio.subprocess.PIPE
+    )
+
     try:
-        result = subprocess.check_output(["node", "-e", code], text=True)
-        await ctx.send(content=f"Output: {result}")
-    except subprocess.CalledProcessError as e:
-        await ctx.send(content=f"Error: {str(e)}")
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        stdout, stderr = await process.communicate()
 
-@bot.command(name="python", help="Run Python code.")
-async def _python(ctx, *, code: str):
-    try:
-        exec_locals = {}
-        exec(code, {"__builtins__": None}, exec_locals)
-        await ctx.send(content=f"Output: {exec_locals}")
-    except Exception as e:
-        await ctx.send(content=f"Error: {str(e)}")
-
-@bot.command(name="read_file", help="Read a file.")
-async def _read_file(ctx, *, file_path: str):
-    try:
-        with open(file_path, 'r') as file:
-            content = file.read()
-        await ctx.send(content=content)
-    except Exception as e:
-        await ctx.send(content=str(e))
-
-@bot.command(name="write_file", help="Write to a file.")
-async def _write_file(ctx, file_path: str, *, content: str):
-    try:
-        with open(file_path, 'w') as file:
-            file.write(content)
-        await ctx.send(content="File written successfully.")
-    except Exception as e:
-        await ctx.send(content=str(e))
-
-@bot.command(name="list_files", help="List files in a directory.")
-async def _list_files(ctx, *, directory: str):
-    try:
-        files = os.listdir(directory)
-        await ctx.send(content="\n".join(files))
-    except Exception as e:
-        await ctx.send(content=str(e))
-
-MAX_MESSAGE_LENGTH = 1900  # Leave some room for extra characters
-
-def run_command_with_timeout(command, timeout_sec):
-    """Runs `command` in a shell and returns its output. Raises a
-    subprocess.TimeoutExpired exception if the command doesn't finish within
-    `timeout_sec` seconds."""
-    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    timer = threading.Timer(timeout_sec, process.kill)
-    try:
-        timer.start()
-        stdout, stderr = process.communicate()
-    finally:
-        timer.cancel()
     return stdout, stderr, process.returncode
 
 @bot.command(name="shell", help="Run a shell command.")
 async def _shell(ctx, *, command: str):
-    try:
-        stdout, stderr, returncode = run_command_with_timeout(command, 10)  # 10 second timeout
+    # Ignore DMs
+    if ctx.guild is None:
+        return
 
-        # We join the stdout and stderr into a single string, separating them by a newline.
-        result = "\n".join([stdout, stderr])
+    # Ensure command is run in the designated channel
+    if ctx.channel.id != CHANNEL_ID:
+        await ctx.send("This command can only be run in the designated bot channel.")
+        return
+
+    try:
+        stdout, stderr, returncode = await run_command_with_timeout(command, 10)  # 10 second timeout
+
+        # Decode bytes to strings and join the stdout and stderr into a single string, separating them by a newline.
+        stdout_str = stdout.decode()
+        stderr_str = stderr.decode()
+        result = "\n".join([stdout_str, stderr_str])
 
         if returncode != 0:
             # If the process exited with a non-zero status (indicating an error), raise an exception.
-            raise subprocess.CalledProcessError(returncode, command)
+            error_message = f"Error: Command '{command}' returned non-zero exit status {returncode}. \n stdout: {stdout_str} \n stderr: {stderr_str}"
+            raise subprocess.CalledProcessError(returncode, command, output=error_message)
 
         # Check if the result is too long to send in a single message
         while len(result) > 0:
             if len(result) > MAX_MESSAGE_LENGTH:
-                await ctx.send(content=f"Output: {result[:MAX_MESSAGE_LENGTH]}")
-                result = result[MAX_MESSAGE_LENGTH:]
+                await ctx.send(content=f"Output: {result[:MAX_MESSAGE_LENGTH - 9]}")  # -9 for "Output: " and a newline character
+                result = result[MAX_MESSAGE_LENGTH - 9:]
             else:
                 await ctx.send(content=f"Output: {result}")
                 result = ""
 
     except subprocess.CalledProcessError as e:
-        await ctx.send(content=f"Error: {str(e)}")
-    except subprocess.TimeoutExpired:
+        await ctx.send(content=str(e.output))  # Send the detailed error message
+    except asyncio.TimeoutError:
         await ctx.send(content="Command timed out.")
-
-@bot.command(name="get_env", help="Get an environment variable.")
-async def _get_env(ctx, *, variable: str):
-    try:
-        value = os.environ.get(variable)
-        await ctx.send(content=f"Value: {value}")
-    except Exception as e:
-        await ctx.send(content=str(e))
-
-@bot.command(name="delete_file", help="Delete a file.")
-async def _delete_file(ctx, *, file_path: str):
-    try:
-        os.remove(file_path)
-        await ctx.send(content="File deleted successfully.")
-    except Exception as e:
-        await ctx.send(content=str(e))
-
-@bot.command(name="chmod", help="Change file permissions.")
-async def _chmod(ctx, file_path: str, *, mode: str):
-    try:
-        os.chmod(file_path, int(mode, 8))  # Mode is expected to be a string representing octal number (like "777", "644")
-        await ctx.send(content="File permissions changed successfully.")
-    except Exception as e:
-        await ctx.send(content=str(e))
-
-@bot.command(name="help", help="Get help about the bot commands.")
-async def _help(ctx):
-    help_text = """
-    WARNING: This bot is intentionally insecure and should only be used in a controlled, educational setting.
-
-    **!js <code>** - Run JavaScript code.
-    **!python <code>** - Run Python code.
-    **!read_file <file_path>** - Read content of a file.
-    **!write_file <file_path> <content>** - Write content to a file.
-    **!list_files <directory>** - List files in a directory.
-    **!shell <command>** - Run a shell command.
-    **!get_env <variable>** - Get an environment variable.
-    **!delete_file <file_path>** - Delete a file.
-    **!chmod <file_path> <mode>** - Change file permissions.
-    **!help** - Show this help message.
-
-    The educational objective of this bot is to illustrate potential security vulnerabilities associated with arbitrary code execution or system access from user input.
-    """
-    await ctx.send(content=help_text)
 
 @bot.event
 async def on_command_error(ctx, error):
     await ctx.send(f"An error occurred: {str(error)}")
 
+@bot.event
+async def on_ready():
+    global channel
+    channel = bot.get_channel(CHANNEL_ID)
+    print(f'{bot.user.name} has connected to Discord!')
+    await channel.send(f'{bot.user.name} has connected to Discord!')
+
+async def shutdown(signal, loop):
+    print(f"Received exit signal {signal.name}...")
+    await channel.send(f"Received exit signal {signal.name}...")
+    print("Closing connections")
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    [task.cancel() for task in tasks]
+    print(f"Cancelling {len(tasks)} tasks")
+    await bot.logout()
+    loop.stop()
+
+def handle_exception(loop, context):
+    msg = context.get("exception", context["message"])
+    print(f"Caught exception: {msg}")
+    print("Shutting down...")
+    asyncio.create_task(shutdown(loop))
+
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+
+    # Check if the operating system is not Windows before adding signal handlers
+    if platform.system() != "Windows":
+        for s in {signal.SIGTERM, signal.SIGINT}:
+            loop.add_signal_handler(
+                s, lambda s=s: asyncio.create_task(shutdown(s, loop))
+            )
+
+    loop.set_exception_handler(handle_exception)
+
     while True:
         try:
-            bot.run(TOKEN)  # Use the TOKEN variable here
+            loop.run_until_complete(bot.start(TOKEN))
         except Exception as e:
             print(f"Exception occurred: {str(e)}. Restarting bot.")
+            sleep(5)
+        else:
+            break
