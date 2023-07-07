@@ -89,6 +89,10 @@ async def _shell(ctx, *, command: str):
 
 @bot.event
 async def on_command_error(ctx, error):
+    # Ignore DMs and commands from other channels
+    if ctx.guild is None or ctx.channel.id != CHANNEL_ID:
+        return
+
     await ctx.send(f"An error occurred: {str(error)}")
 
 @bot.event
