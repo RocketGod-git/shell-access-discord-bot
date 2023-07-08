@@ -40,6 +40,4 @@ Please use this bot responsibly and understand the associated security risks of 
     python shell-bot.py
     ```
 
-
-
-![RocketGod Logo](https://user-images.githubusercontent.com/57732082/213221533-171b37da-46e5-4661-ac47-c7f23d24b816.png)
+![RocketGod](https://github.com/RocketGod-git/shell-access-discord-bot/assets/57732082/c68635fa-b89d-4f74-a1cb-5b5351c22c98)
