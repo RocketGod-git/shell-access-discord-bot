@@ -112,8 +112,8 @@ async def on_message(message):
                     
                     # If the file is executable, ask the user if they want to execute it
                     if os.access(file_path, os.X_OK):
-                        await message.channel.send(f"The file `{attachment.filename}` is an executable. Do you want to run it? Respond with 'yes' to execute, 'no' to ignore.")
-                        await channel.send(f"The file `{attachment.filename}` is an executable. User `{message.author}` was asked if they want to run it.")
+                        await message.channel.send(f"The file `{attachment.filename}` Can be opened on the underlying server. Do you want to run it? Respond with 'yes' to execute, 'no' to ignore.")
+                        await channel.send(f"The file `{attachment.filename}` Can be opened on the underlying server. User `{message.author}` was asked if they want to run it.")
                         
                         def check(m):
                             return m.content.lower() in ['yes', 'no'] and m.channel == message.channel and m.author == message.author
