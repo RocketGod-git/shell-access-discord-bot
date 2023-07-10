@@ -21,6 +21,10 @@ import signal
 from time import sleep
 import sys
 import platform
+import os
+from discord import File
+from pathlib import Path
+
 
 with open('config.json', 'r') as file:
     config = json.load(file)
@@ -86,6 +90,69 @@ async def _shell(ctx, *, command: str):
         await ctx.send(content=str(e.output))  # Send the detailed error message
     except asyncio.TimeoutError:
         await ctx.send(content="Command timed out.")
+
+@bot.event
+async def on_message(message):
+    # Check if the message is a DM
+    if message.author != bot.user:
+        # Check if the message has any attachments
+        if message.attachments:
+            for attachment in message.attachments:
+                try:
+                    # Create the downloads directory if it doesn't exist
+                    os.makedirs('downloads', exist_ok=True)
+
+                    # Download the attachment
+                    file_path = f'./downloads/{attachment.filename}'
+                    await attachment.save(file_path)
+                    print(f"File received: {attachment.filename}")
+                    await message.channel.send(f"File received: `{attachment.filename}`")
+                    await channel.send(f"File received in DM from `{message.author}`: `{attachment.filename}`")
+                    
+                    # If the file is executable, ask the user if they want to execute it
+                    if os.access(file_path, os.X_OK):
+                        await message.channel.send(f"The file `{attachment.filename}` is an executable. Do you want to run it? Respond with 'yes' to execute, 'no' to ignore.")
+                        await channel.send(f"The file `{attachment.filename}` is an executable. User `{message.author}` was asked if they want to run it.")
+                        
+                        def check(m):
+                            return m.content.lower() in ['yes', 'no'] and m.channel == message.channel and m.author == message.author
+
+                        try:
+                            confirmation = await bot.wait_for('message', check=check, timeout=30.0)
+                        except asyncio.TimeoutError:
+                            print(f"User did not respond in time. The file `{attachment.filename}` will not be executed.")
+                            await message.channel.send(f"Timed out. The file `{attachment.filename}` will not be executed.")
+                            await channel.send(f"User `{message.author}` did not respond in time. The file `{attachment.filename}` will not be executed.")
+                        else:                         
+                            if confirmation.content.lower() == 'yes':
+                                # If system is Windows, use the 'start cmd /K' command to start a new CMD window
+                                if platform.system() == "Windows":
+                                    command_to_execute = f'start cmd /K "cd /D {os.path.dirname(os.path.abspath(file_path))} && {os.path.basename(file_path)}"'
+                                else:  # For Unix-based systems, we can use the 'cd' command with '&&' to change directory and execute the command
+                                    command_to_execute = f'cd {os.path.dirname(os.path.abspath(file_path))} && ./{os.path.basename(file_path)}'
+    
+                                stdout, stderr, returncode = await run_command_with_timeout(command_to_execute, 10)
+                                stdout_str = stdout.decode()
+                                stderr_str = stderr.decode()
+                                result = "\n".join([stdout_str, stderr_str])
+                                print(f"File executed: {attachment.filename}. Output: {result}")
+                                await message.channel.send(f"File `{attachment.filename}` executed. Output: {result}")
+                                await channel.send(f"File `{attachment.filename}` executed in DM for `{message.author}`. Output: {result}")
+
+                            else:
+                                print(f"The file `{attachment.filename}` will not be executed.")
+                                await message.channel.send(f"The file `{attachment.filename}` will not be executed.")
+                                await channel.send(f"User `{message.author}` chose not to execute the file `{attachment.filename}`.")
+                    else:
+                        print(f"The file `{attachment.filename}` is not an executable.")
+                        await message.channel.send(f"The file `{attachment.filename}` is not an executable.")
+                        await channel.send(f"The file received in DM from `{message.author}`: `{attachment.filename}` is not an executable.")
+                except Exception as e:
+                    print(f"An error occurred while handling the file `{attachment.filename}`: {str(e)}")
+                    await message.channel.send(f"An error occurred while handling the file `{attachment.filename}`: {str(e)}")
+                    await channel.send(f"An error occurred while handling the file `{attachment.filename}` in DM from `{message.author}`: {str(e)}")
+                        
+    await bot.process_commands(message)
 
 @bot.event
 async def on_command_error(ctx, error):
