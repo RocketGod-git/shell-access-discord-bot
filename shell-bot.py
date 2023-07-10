@@ -93,7 +93,8 @@ async def _shell(ctx, *, command: str):
 
 @bot.event
 async def on_message(message):
-    # Check if the message is a DM
+    if message.channel.id != CHANNEL_ID:
+        return
     if message.author != bot.user:
         # Check if the message has any attachments
         if message.attachments:
